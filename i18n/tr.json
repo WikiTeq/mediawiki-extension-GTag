@@ -1,6 +1,7 @@
 {
 	"@metadata": {
 		"authors": [
+			"HakanIST",
 			"MuratTheTurkish",
 			"SaldırganSincap"
 		]
@@ -8,6 +9,7 @@
 	"gtag-desc": "Google Analytics İzleme",
 	"gtag-config-analyticsid": "Google Analytics hesap kimliği (GT-xxxxxxx veya GTM-xxxxxxx)",
 	"gtag-config-anonymizeip": "Google Analytics'e gönderilen IP adreslerini anonimleştirin",
+	"gtag-config-enabletcf": "IAB Şeffaflık ve Onay Çerçevesi desteğini etkinleştir",
 	"gtag-config-honordnt": "Bir kullanıcının izlenmek istemediğini belirten DNT başlığına uyun",
 	"gtag-config-tracksensitivepages": "İzleme kodunu, UserLogin ve Tercihler gibi potansiyel olarak hassas sayfalara dahil edin",
 	"right-gtag-exempt": "Google Analytics tarafından izlenmez"
