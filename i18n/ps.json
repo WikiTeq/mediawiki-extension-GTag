@@ -1,0 +1,15 @@
+{
+	"@metadata": {
+		"authors": [
+			"شاه زمان پټان"
+		]
+	},
+	"gtag-extensionname": "جي‌نښلن",
+	"gtag-desc": "د گوگل ارزوونکی پلنيوی",
+	"gtag-config-analyticsid": "گوگل ارزوونکي گڼون پېژند (GT-xxxxxxx or GTM-xxxxxxx)",
+	"gtag-config-anonymizeip": "گوگل ارزونې ته لېږل شوې وېب پتې بې‌نومه کول",
+	"gtag-config-enabletcf": "د IAB روڼتيا او منښتي کارچوکاټ چارنول",
+	"gtag-config-honordnt": "د DNT سرليک درناوی وکړئ چې ښيي چې يو کارن نه غواړي پلنيوی يې وشي",
+	"gtag-config-tracksensitivepages": "په شوني حساسو مخونو لکه کارن‌ننوتل او غوره‌توبونو کې د پلنيوي کوډ راونغاړئ",
+	"right-gtag-exempt": "د گوگل ارزونې له‌خوا دې پلنيوی ونشي"
+}

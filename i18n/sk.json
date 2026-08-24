@@ -1,0 +1,14 @@
+{
+	"@metadata": {
+		"authors": [
+			"Wizzard"
+		]
+	},
+	"gtag-desc": "Sledovanie pomocou Google Analytics",
+	"gtag-config-analyticsid": "ID účtu Google Analytics (GT-xxxxxxx alebo GTM-xxxxxxx)",
+	"gtag-config-anonymizeip": "Anonymizovať IP adresy odosielané do Google Analytics",
+	"gtag-config-enabletcf": "Zapnúť podporu pre IAB Transparency & Consent Framework",
+	"gtag-config-honordnt": "Rešpektovať hlavičku DNT, ktorá signalizuje, že používateľ si neželá byť sledovaný",
+	"gtag-config-tracksensitivepages": "Zahrnúť sledovací kód aj na potenciálne citlivé stránky ako UserLogin a Preferences",
+	"right-gtag-exempt": "Nebyť sledovaný službou Google Analytics"
+}
