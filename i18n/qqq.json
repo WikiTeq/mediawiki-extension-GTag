@@ -12,5 +12,6 @@
 	"gtag-config-enabletcf": "Description of the configuration variable $wgGTagEnableTCF. This message is not exposed to users.",
 	"gtag-config-honordnt": "Description of the configuration variable $wgGTagHonorDNT. This message is not exposed to users.",
 	"gtag-config-tracksensitivepages": "Description of the configuration variable $wgGTagTrackSensitivePages. This message is not exposed to users.",
+	"gtag-config-requirecookieconsent": "Description of the configuration variable $wgGTagRequireCookieConsent. This message is not exposed to users.",
 	"right-gtag-exempt": "{{doc-right|gtag-exempt}}"
 }

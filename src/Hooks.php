@@ -5,6 +5,7 @@ namespace MediaWiki\Extension\GTag;
 use MediaWiki\Hook\BeforePageDisplayHook;
 use MediaWiki\Html\Html;
 use MediaWiki\Permissions\PermissionManager;
+use MediaWiki\Registration\ExtensionRegistry;
 use MediaWiki\ResourceLoader\Module;
 use OutputPage;
 use Skin;
@@ -13,11 +14,19 @@ class Hooks implements BeforePageDisplayHook {
 	/** @var PermissionManager */
 	private PermissionManager $permissionManager;
 
+	/** @var ExtensionRegistry */
+	private ExtensionRegistry $extensionRegistry;
+
 	/**
 	 * @param PermissionManager $permissionManager
+	 * @param ExtensionRegistry|null $extensionRegistry
 	 */
-	public function __construct( PermissionManager $permissionManager ) {
+	public function __construct(
+		PermissionManager $permissionManager,
+		?ExtensionRegistry $extensionRegistry = null
+	) {
 		$this->permissionManager = $permissionManager;
+		$this->extensionRegistry = $extensionRegistry ?? ExtensionRegistry::getInstance();
 	}
 
 	/**
@@ -34,8 +43,11 @@ class Hooks implements BeforePageDisplayHook {
 		$gaId = $config->get( 'GTagAnalyticsId' );
 		$anonymizeIP = $config->get( 'GTagAnonymizeIP' );
 		$honorDNT = $config->get( 'GTagHonorDNT' );
-		$enableTCF = $config->get( 'GTagEnableTCF' );
 		$trackSensitive = $config->get( 'GTagTrackSensitivePages' );
+		$requireCookieConsent = $config->get( 'GTagRequireCookieConsent' );
+		$cookieConsentLoaded = $this->extensionRegistry->isLoaded( 'CookieConsent' );
+		// CookieConsent is the CMP; ignore IAB TCF so the two cannot combine.
+		$enableTCF = $config->get( 'GTagEnableTCF' ) && !$cookieConsentLoaded;
 
 		$validId = preg_match( '/^(?<tagType>[A-Z]+)-[0-9A-Z-]+$/', $gaId, $matches );
 		if ( $gaId === '' || !$validId ) {
@@ -89,6 +101,20 @@ class Hooks implements BeforePageDisplayHook {
 			$tcfLine = 'window["gtag_enable_tcf_support"] = true;';
 		} else {
 			$tcfLine = '';
+		}
+
+		// Same HTML for every anonymous user: a tiny RL module loads Google
+		// after CookieConsent grants statistics (same idea as CodeMirror's lib).
+		// Without CookieConsent the flag is ignored, so GTag-only wikis keep
+		// the old inline tag even when the default is true.
+		if ( $requireCookieConsent && $cookieConsentLoaded ) {
+			$out->addJsConfigVars( 'wgGTagConsent', [
+				'id' => $gaId,
+				'tagType' => $matches['tagType'],
+				'config' => (object)$gtConfig,
+			] );
+			$out->addModules( 'ext.GTag.consent' );
+			return;
 		}
 
 		// If we get here, the user should be tracked
