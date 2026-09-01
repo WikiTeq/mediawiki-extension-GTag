@@ -5,6 +5,7 @@ namespace MediaWiki\Extension\GTag;
 use MediaWiki\Hook\BeforePageDisplayHook;
 use MediaWiki\Html\Html;
 use MediaWiki\Permissions\PermissionManager;
+use MediaWiki\Registration\ExtensionRegistry;
 use MediaWiki\ResourceLoader\Module;
 use OutputPage;
 use Skin;
@@ -13,11 +14,19 @@ class Hooks implements BeforePageDisplayHook {
 	/** @var PermissionManager */
 	private PermissionManager $permissionManager;
 
+	/** @var ExtensionRegistry */
+	private ExtensionRegistry $extensionRegistry;
+
 	/**
 	 * @param PermissionManager $permissionManager
+	 * @param ExtensionRegistry|null $extensionRegistry
 	 */
-	public function __construct( PermissionManager $permissionManager ) {
+	public function __construct(
+		PermissionManager $permissionManager,
+		?ExtensionRegistry $extensionRegistry = null
+	) {
 		$this->permissionManager = $permissionManager;
+		$this->extensionRegistry = $extensionRegistry ?? ExtensionRegistry::getInstance();
 	}
 
 	/**
@@ -34,8 +43,9 @@ class Hooks implements BeforePageDisplayHook {
 		$gaId = $config->get( 'GTagAnalyticsId' );
 		$anonymizeIP = $config->get( 'GTagAnonymizeIP' );
 		$honorDNT = $config->get( 'GTagHonorDNT' );
-		$enableTCF = $config->get( 'GTagEnableTCF' );
 		$trackSensitive = $config->get( 'GTagTrackSensitivePages' );
+		$cookieConsentLoaded = $this->extensionRegistry->isLoaded( 'CookieConsent' );
+		$enableTCF = $config->get( 'GTagEnableTCF' ) && !$cookieConsentLoaded;
 
 		$validId = preg_match( '/^(?<tagType>[A-Z]+)-[0-9A-Z-]+$/', $gaId, $matches );
 		if ( $gaId === '' || !$validId ) {
@@ -94,12 +104,26 @@ class Hooks implements BeforePageDisplayHook {
 		// If we get here, the user should be tracked
 		switch ( $matches['tagType'] ) {
 			case 'GTM':
-				$this->setupGTM( $gaId, $out );
+				$this->setupGTM( $gaId, $out, $cookieConsentLoaded );
 				break;
 			default:
-				$this->setupGtag( $gaId, $tcfLine, $gtConfigJson, $out );
+				$this->setupGtag( $gaId, $tcfLine, $gtConfigJson, $out, $cookieConsentLoaded );
 				break;
 		}
+	}
+
+	/**
+	 * Attributes that keep a script inert until CookieConsent grants statistics.
+	 *
+	 * @param OutputPage $out
+	 * @return array
+	 */
+	private function consentScriptAttribs( OutputPage $out ): array {
+		return [
+			'type' => 'text/plain',
+			'data-mw-cookieconsent' => 'statistics',
+			'nonce' => $out->getCSP()->getNonce(),
+		];
 	}
 
 	/**
@@ -107,17 +131,32 @@ class Hooks implements BeforePageDisplayHook {
 	 *
 	 * @param string $gaId
 	 * @param OutputPage $out
+	 * @param bool $waitForConsent
 	 * @return void
 	 */
-	private function setupGTM( string $gaId, OutputPage $out ): void {
-		$out->addInlineScript( <<<EOS
+	private function setupGTM( string $gaId, OutputPage $out, bool $waitForConsent = false ): void {
+		$loader = <<<EOS
 (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
 j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
 })(window,document,'script','dataLayer','$gaId');
-EOS
-		);
+EOS;
+
+		if ( $waitForConsent ) {
+			$out->addScript( Html::rawElement( 'script', $this->consentScriptAttribs( $out ), $loader ) );
+			// CookieConsent only sees iframes that exist in the DOM (not inside noscript).
+			$out->addHTML( Html::element( 'iframe', [
+				'data-mw-src' => "https://www.googletagmanager.com/ns.html?id=$gaId",
+				'data-mw-cookieconsent' => 'statistics',
+				'height' => '0',
+				'width' => '0',
+				'style' => 'display:none;visibility:hidden',
+			] ) );
+			return;
+		}
+
+		$out->addInlineScript( $loader );
 
 		$out->addHTML( <<<EOS
 <!-- Google Tag Manager (noscript) -->
@@ -135,22 +174,40 @@ EOS
 	 * @param string $tcfLine
 	 * @param string $gtConfigJson
 	 * @param OutputPage $out
+	 * @param bool $waitForConsent
 	 * @return void
 	 */
-	private function setupGtag( string $gaId, string $tcfLine, string $gtConfigJson, OutputPage $out ): void {
+	private function setupGtag(
+		string $gaId,
+		string $tcfLine,
+		string $gtConfigJson,
+		OutputPage $out,
+		bool $waitForConsent = false
+	): void {
+		$inline = <<<EOS
+window.dataLayer = window.dataLayer || [];
+$tcfLine
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '$gaId', $gtConfigJson);
+EOS;
+
+		if ( $waitForConsent ) {
+			$attribs = $this->consentScriptAttribs( $out );
+			$out->addScript( Html::element( 'script', $attribs + [
+				'src' => "https://www.googletagmanager.com/gtag/js?id=$gaId",
+				'async' => true,
+			] ) );
+			$out->addScript( Html::rawElement( 'script', $attribs, $inline ) );
+			return;
+		}
+
 		$out->addScript( Html::element( 'script', [
 			'src' => "https://www.googletagmanager.com/gtag/js?id=$gaId",
 			'async' => true,
 			'nonce' => $out->getCSP()->getNonce()
 		] ) );
 
-		$out->addInlineScript( <<<EOS
-window.dataLayer = window.dataLayer || [];
-$tcfLine
-function gtag(){dataLayer.push(arguments);}
-gtag('js', new Date());
-gtag('config', '$gaId', $gtConfigJson);
-EOS
-		);
+		$out->addInlineScript( $inline );
 	}
 }
