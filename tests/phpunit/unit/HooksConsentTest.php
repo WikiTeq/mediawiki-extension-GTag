@@ -14,9 +14,6 @@ use MediaWikiUnitTestCase;
 use Skin;
 use Wikimedia\TestingAccessWrapper;
 
-// MediaWikiUnitTestCase does not load AutoloadNamespaces from extension.json.
-require_once dirname( __DIR__, 3 ) . '/src/Hooks.php';
-
 /**
  * @covers \MediaWiki\Extension\GTag\Hooks
  */
@@ -118,11 +115,26 @@ class HooksConsentTest extends MediaWikiUnitTestCase {
 		$hooks->expects( $this->never() )->method( 'addUnguardedGtm' );
 
 		if ( $cookieConsentLoaded ) {
-			$hooks->expects( $this->once() )->method( 'addConsentGuardedGtag' );
+			$hooks->expects( $this->once() )->method( 'addConsentGuardedGtag' )->with(
+				$this->anything(),
+				$this->logicalNot( $this->stringContains( 'gtag_enable_tcf_support' ) ),
+				$this->anything()
+			);
 			$hooks->expects( $this->never() )->method( 'addUnguardedGtag' );
+		} elseif ( $enableTCF ) {
+			$hooks->expects( $this->never() )->method( 'addConsentGuardedGtag' );
+			$hooks->expects( $this->once() )->method( 'addUnguardedGtag' )->with(
+				$this->anything(),
+				$this->stringContains( 'gtag_enable_tcf_support' ),
+				$this->anything()
+			);
 		} else {
 			$hooks->expects( $this->never() )->method( 'addConsentGuardedGtag' );
-			$hooks->expects( $this->once() )->method( 'addUnguardedGtag' );
+			$hooks->expects( $this->once() )->method( 'addUnguardedGtag' )->with(
+				$this->anything(),
+				$this->logicalNot( $this->stringContains( 'gtag_enable_tcf_support' ) ),
+				$this->anything()
+			);
 		}
 
 		$hooks->onBeforePageDisplay( $out, $skin );
