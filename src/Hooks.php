@@ -19,14 +19,14 @@ class Hooks implements BeforePageDisplayHook {
 
 	/**
 	 * @param PermissionManager $permissionManager
-	 * @param ExtensionRegistry|null $extensionRegistry
+	 * @param ExtensionRegistry $extensionRegistry
 	 */
 	public function __construct(
 		PermissionManager $permissionManager,
-		?ExtensionRegistry $extensionRegistry = null
+		ExtensionRegistry $extensionRegistry
 	) {
 		$this->permissionManager = $permissionManager;
-		$this->extensionRegistry = $extensionRegistry ?? ExtensionRegistry::getInstance();
+		$this->extensionRegistry = $extensionRegistry;
 	}
 
 	/**
@@ -131,10 +131,10 @@ class Hooks implements BeforePageDisplayHook {
 	 *
 	 * @param string $gaId
 	 * @param OutputPage $out
-	 * @param bool $waitForConsent
+	 * @param bool $cookieConsentLoaded
 	 * @return void
 	 */
-	private function setupGTM( string $gaId, OutputPage $out, bool $waitForConsent = false ): void {
+	private function setupGTM( string $gaId, OutputPage $out, bool $cookieConsentLoaded ): void {
 		$loader = <<<EOS
 (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -143,28 +143,12 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 })(window,document,'script','dataLayer','$gaId');
 EOS;
 
-		if ( $waitForConsent ) {
-			$out->addScript( Html::rawElement( 'script', $this->consentScriptAttribs( $out ), $loader ) );
-			// CookieConsent only sees iframes that exist in the DOM (not inside noscript).
-			$out->addHTML( Html::element( 'iframe', [
-				'data-mw-src' => "https://www.googletagmanager.com/ns.html?id=$gaId",
-				'data-mw-cookieconsent' => 'statistics',
-				'height' => '0',
-				'width' => '0',
-				'style' => 'display:none;visibility:hidden',
-			] ) );
+		if ( $cookieConsentLoaded ) {
+			$this->addConsentGuardedGtm( $loader, $out );
 			return;
 		}
 
-		$out->addInlineScript( $loader );
-
-		$out->addHTML( <<<EOS
-<!-- Google Tag Manager (noscript) -->
-<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=$gaId"
-height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-<!-- End Google Tag Manager (noscript) -->
-EOS
-		);
+		$this->addUnguardedGtm( $gaId, $loader, $out );
 	}
 
 	/**
@@ -174,7 +158,7 @@ EOS
 	 * @param string $tcfLine
 	 * @param string $gtConfigJson
 	 * @param OutputPage $out
-	 * @param bool $waitForConsent
+	 * @param bool $cookieConsentLoaded
 	 * @return void
 	 */
 	private function setupGtag(
@@ -182,7 +166,7 @@ EOS
 		string $tcfLine,
 		string $gtConfigJson,
 		OutputPage $out,
-		bool $waitForConsent = false
+		bool $cookieConsentLoaded
 	): void {
 		$inline = <<<EOS
 window.dataLayer = window.dataLayer || [];
@@ -192,16 +176,40 @@ gtag('js', new Date());
 gtag('config', '$gaId', $gtConfigJson);
 EOS;
 
-		if ( $waitForConsent ) {
-			$attribs = $this->consentScriptAttribs( $out );
-			$out->addScript( Html::element( 'script', $attribs + [
-				'src' => "https://www.googletagmanager.com/gtag/js?id=$gaId",
-				'async' => true,
-			] ) );
-			$out->addScript( Html::rawElement( 'script', $attribs, $inline ) );
+		if ( $cookieConsentLoaded ) {
+			$this->addConsentGuardedGtag( $gaId, $inline, $out );
 			return;
 		}
 
+		$this->addUnguardedGtag( $gaId, $inline, $out );
+	}
+
+	/**
+	 * Emit gtag.js tags that stay inert until CookieConsent grants statistics.
+	 *
+	 * @param string $gaId
+	 * @param string $inline
+	 * @param OutputPage $out
+	 * @return void
+	 */
+	protected function addConsentGuardedGtag( string $gaId, string $inline, OutputPage $out ): void {
+		$attribs = $this->consentScriptAttribs( $out );
+		$out->addScript( Html::element( 'script', $attribs + [
+			'src' => "https://www.googletagmanager.com/gtag/js?id=$gaId",
+			'async' => true,
+		] ) );
+		$out->addScript( Html::rawElement( 'script', $attribs, $inline ) );
+	}
+
+	/**
+	 * Emit live gtag.js tags.
+	 *
+	 * @param string $gaId
+	 * @param string $inline
+	 * @param OutputPage $out
+	 * @return void
+	 */
+	protected function addUnguardedGtag( string $gaId, string $inline, OutputPage $out ): void {
 		$out->addScript( Html::element( 'script', [
 			'src' => "https://www.googletagmanager.com/gtag/js?id=$gaId",
 			'async' => true,
@@ -209,5 +217,38 @@ EOS;
 		] ) );
 
 		$out->addInlineScript( $inline );
+	}
+
+	/**
+	 * Emit a GTM loader that stays inert until CookieConsent grants statistics.
+	 *
+	 * CookieConsent needs JavaScript, so the GTM noscript iframe is omitted.
+	 *
+	 * @param string $loader
+	 * @param OutputPage $out
+	 * @return void
+	 */
+	protected function addConsentGuardedGtm( string $loader, OutputPage $out ): void {
+		$out->addScript( Html::rawElement( 'script', $this->consentScriptAttribs( $out ), $loader ) );
+	}
+
+	/**
+	 * Emit live GTM loader and noscript iframe.
+	 *
+	 * @param string $gaId
+	 * @param string $loader
+	 * @param OutputPage $out
+	 * @return void
+	 */
+	protected function addUnguardedGtm( string $gaId, string $loader, OutputPage $out ): void {
+		$out->addInlineScript( $loader );
+
+		$out->addHTML( <<<EOS
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=$gaId"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+EOS
+		);
 	}
 }

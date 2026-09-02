@@ -12,7 +12,9 @@ use MediaWiki\Request\WebRequest;
 use MediaWiki\User\User;
 use MediaWikiUnitTestCase;
 use Skin;
+use Wikimedia\TestingAccessWrapper;
 
+// MediaWikiUnitTestCase does not load AutoloadNamespaces from extension.json.
 require_once dirname( __DIR__, 3 ) . '/src/Hooks.php';
 
 /**
@@ -20,20 +22,13 @@ require_once dirname( __DIR__, 3 ) . '/src/Hooks.php';
  */
 class HooksConsentTest extends MediaWikiUnitTestCase {
 
-	private function newHooks(
-		PermissionManager $permissionManager,
-		ExtensionRegistry $extensionRegistry
-	): Hooks {
-		return new Hooks( $permissionManager, $extensionRegistry );
-	}
-
 	/**
 	 * @param array $configOverrides
 	 * @param bool $exempt
 	 * @param bool $cookieConsentLoaded
-	 * @return array{0:Hooks,1:OutputPage,2:Skin}
+	 * @return array{0:PermissionManager,1:ExtensionRegistry,2:OutputPage,3:Skin}
 	 */
-	private function setupPage(
+	private function pageFixtures(
 		array $configOverrides,
 		bool $exempt = false,
 		bool $cookieConsentLoaded = false
@@ -61,7 +56,7 @@ class HooksConsentTest extends MediaWikiUnitTestCase {
 		);
 
 		$csp = $this->createMock( ContentSecurityPolicy::class );
-		$csp->method( 'getNonce' )->willReturn( null );
+		$csp->method( 'getNonce' )->willReturn( false );
 
 		$out = $this->createMock( OutputPage::class );
 		$out->method( 'getUser' )->willReturn( $user );
@@ -71,7 +66,27 @@ class HooksConsentTest extends MediaWikiUnitTestCase {
 
 		$skin = $this->createMock( Skin::class );
 
-		return [ $this->newHooks( $permissionManager, $extensionRegistry ), $out, $skin ];
+		return [ $permissionManager, $extensionRegistry, $out, $skin ];
+	}
+
+	/**
+	 * @param PermissionManager $permissionManager
+	 * @param ExtensionRegistry $extensionRegistry
+	 * @return Hooks&\PHPUnit\Framework\MockObject\MockObject
+	 */
+	private function newRoutingMock(
+		PermissionManager $permissionManager,
+		ExtensionRegistry $extensionRegistry
+	): Hooks {
+		return $this->getMockBuilder( Hooks::class )
+			->setConstructorArgs( [ $permissionManager, $extensionRegistry ] )
+			->onlyMethods( [
+				'addConsentGuardedGtag',
+				'addUnguardedGtag',
+				'addConsentGuardedGtm',
+				'addUnguardedGtm',
+			] )
+			->getMock();
 	}
 
 	public static function provideConsentAndTcfCombinations(): array {
@@ -88,84 +103,150 @@ class HooksConsentTest extends MediaWikiUnitTestCase {
 	 * @param bool $cookieConsentLoaded
 	 * @param bool $enableTCF
 	 */
-	public function testConsentAndTcfCombinations(
+	public function testRoutingConsentAndTcfCombinations(
 		bool $cookieConsentLoaded,
 		bool $enableTCF
 	): void {
-		[ $hooks, $out, $skin ] = $this->setupPage(
+		[ $permissionManager, $extensionRegistry, $out, $skin ] = $this->pageFixtures(
 			[ 'GTagEnableTCF' => $enableTCF ],
 			false,
 			$cookieConsentLoaded
 		);
+		$hooks = $this->newRoutingMock( $permissionManager, $extensionRegistry );
 
-		$out->expects( $this->never() )->method( 'addModules' );
-		$out->expects( $this->never() )->method( 'addJsConfigVars' );
+		$hooks->expects( $this->never() )->method( 'addConsentGuardedGtm' );
+		$hooks->expects( $this->never() )->method( 'addUnguardedGtm' );
 
 		if ( $cookieConsentLoaded ) {
-			$out->expects( $this->never() )->method( 'addInlineScript' );
-			$out->expects( $this->exactly( 2 ) )->method( 'addScript' )->with(
-				$this->callback( static function ( $html ) {
-					return is_string( $html )
-						&& str_contains( $html, 'type="text/plain"' )
-						&& str_contains( $html, 'data-mw-cookieconsent="statistics"' )
-						&& !str_contains( $html, 'gtag_enable_tcf_support' );
-				} )
-			);
+			$hooks->expects( $this->once() )->method( 'addConsentGuardedGtag' );
+			$hooks->expects( $this->never() )->method( 'addUnguardedGtag' );
 		} else {
-			$out->expects( $this->once() )->method( 'addScript' );
-			if ( $enableTCF ) {
-				$out->expects( $this->once() )->method( 'addInlineScript' )->with(
-					$this->stringContains( 'gtag_enable_tcf_support' )
-				);
-			} else {
-				$out->expects( $this->once() )->method( 'addInlineScript' )->with(
-					$this->logicalNot( $this->stringContains( 'gtag_enable_tcf_support' ) )
-				);
-			}
+			$hooks->expects( $this->never() )->method( 'addConsentGuardedGtag' );
+			$hooks->expects( $this->once() )->method( 'addUnguardedGtag' );
 		}
 
 		$hooks->onBeforePageDisplay( $out, $skin );
 	}
 
-	public function testCookieConsentGtmUsesDataAttributesNotNoscriptSrc() {
-		[ $hooks, $out, $skin ] = $this->setupPage(
+	public function testRoutingCookieConsentGtmUsesGuardedEmitter() {
+		[ $permissionManager, $extensionRegistry, $out, $skin ] = $this->pageFixtures(
 			[ 'GTagAnalyticsId' => 'GTM-TEST1234' ],
 			false,
 			true
 		);
+		$hooks = $this->newRoutingMock( $permissionManager, $extensionRegistry );
 
-		$out->expects( $this->never() )->method( 'addInlineScript' );
-		$out->expects( $this->once() )->method( 'addScript' )->with(
-			$this->callback( static function ( $html ) {
-				return is_string( $html )
-					&& str_contains( $html, 'type="text/plain"' )
-					&& str_contains( $html, 'data-mw-cookieconsent="statistics"' )
-					&& str_contains( $html, 'GTM-TEST1234' );
-			} )
-		);
-		$out->expects( $this->once() )->method( 'addHTML' )->with(
-			$this->callback( static function ( $html ) {
-				return is_string( $html )
-					&& str_contains( $html, 'data-mw-src=' )
-					&& str_contains( $html, 'data-mw-cookieconsent="statistics"' )
-					&& !str_contains( $html, ' src=' );
-			} )
-		);
+		$hooks->expects( $this->once() )->method( 'addConsentGuardedGtm' );
+		$hooks->expects( $this->never() )->method( 'addUnguardedGtm' );
+		$hooks->expects( $this->never() )->method( 'addConsentGuardedGtag' );
+		$hooks->expects( $this->never() )->method( 'addUnguardedGtag' );
 
 		$hooks->onBeforePageDisplay( $out, $skin );
 	}
 
-	public function testNoAnalyticsIdDoesNotEmitTags() {
-		[ $hooks, $out, $skin ] = $this->setupPage(
+	public function testRoutingNoAnalyticsIdDoesNotEmitTags() {
+		[ $permissionManager, $extensionRegistry, $out, $skin ] = $this->pageFixtures(
 			[ 'GTagAnalyticsId' => '' ],
 			false,
 			true
 		);
+		$hooks = $this->newRoutingMock( $permissionManager, $extensionRegistry );
 
-		$out->expects( $this->never() )->method( 'addScript' );
+		$hooks->expects( $this->never() )->method( 'addConsentGuardedGtag' );
+		$hooks->expects( $this->never() )->method( 'addUnguardedGtag' );
+		$hooks->expects( $this->never() )->method( 'addConsentGuardedGtm' );
+		$hooks->expects( $this->never() )->method( 'addUnguardedGtm' );
+
+		$hooks->onBeforePageDisplay( $out, $skin );
+	}
+
+	public function testConsentGuardedGtagEmitsPlainTags() {
+		[ $permissionManager, $extensionRegistry, $out ] = $this->pageFixtures( [] );
+		$hooks = TestingAccessWrapper::newFromObject(
+			new Hooks( $permissionManager, $extensionRegistry )
+		);
+
+		$out->expects( $this->exactly( 2 ) )->method( 'addScript' )->withConsecutive(
+			[
+				$this->logicalAnd(
+					$this->stringContains( 'type="text/plain"' ),
+					$this->stringContains( 'data-mw-cookieconsent="statistics"' ),
+					$this->stringContains( 'gtag/js?id=G-TEST1234' )
+				),
+			],
+			[
+				$this->logicalAnd(
+					$this->stringContains( 'type="text/plain"' ),
+					$this->stringContains( 'data-mw-cookieconsent="statistics"' ),
+					$this->stringContains( 'dataLayer' ),
+					$this->logicalNot( $this->stringContains( 'gtag_enable_tcf_support' ) )
+				),
+			]
+		);
+		$out->expects( $this->never() )->method( 'addInlineScript' );
+
+		$hooks->addConsentGuardedGtag( 'G-TEST1234', "window.dataLayer = window.dataLayer || [];\n", $out );
+	}
+
+	public function testUnguardedGtagEmitsLiveTagsAndTcfLine() {
+		[ $permissionManager, $extensionRegistry, $out ] = $this->pageFixtures( [] );
+		$hooks = TestingAccessWrapper::newFromObject(
+			new Hooks( $permissionManager, $extensionRegistry )
+		);
+
+		$out->expects( $this->once() )->method( 'addScript' )->with(
+			$this->logicalAnd(
+				$this->stringContains( 'gtag/js?id=G-TEST1234' ),
+				$this->logicalNot( $this->stringContains( 'text/plain' ) )
+			)
+		);
+		$out->expects( $this->once() )->method( 'addInlineScript' )->with(
+			$this->stringContains( 'gtag_enable_tcf_support' )
+		);
+
+		$hooks->addUnguardedGtag(
+			'G-TEST1234',
+			"window[\"gtag_enable_tcf_support\"] = true;\n",
+			$out
+		);
+	}
+
+	public function testConsentGuardedGtmOmitsIframe() {
+		[ $permissionManager, $extensionRegistry, $out ] = $this->pageFixtures( [] );
+		$hooks = TestingAccessWrapper::newFromObject(
+			new Hooks( $permissionManager, $extensionRegistry )
+		);
+
+		$out->expects( $this->once() )->method( 'addScript' )->with(
+			$this->logicalAnd(
+				$this->stringContains( 'type="text/plain"' ),
+				$this->stringContains( 'data-mw-cookieconsent="statistics"' ),
+				$this->stringContains( 'GTM-TEST1234' )
+			)
+		);
 		$out->expects( $this->never() )->method( 'addInlineScript' );
 		$out->expects( $this->never() )->method( 'addHTML' );
 
-		$hooks->onBeforePageDisplay( $out, $skin );
+		$hooks->addConsentGuardedGtm( "gtm.js?id=GTM-TEST1234\n", $out );
+	}
+
+	public function testUnguardedGtmEmitsNoscriptIframe() {
+		[ $permissionManager, $extensionRegistry, $out ] = $this->pageFixtures( [] );
+		$hooks = TestingAccessWrapper::newFromObject(
+			new Hooks( $permissionManager, $extensionRegistry )
+		);
+
+		$out->expects( $this->once() )->method( 'addInlineScript' )->with(
+			$this->stringContains( 'GTM-TEST1234' )
+		);
+		$out->expects( $this->once() )->method( 'addHTML' )->with(
+			$this->logicalAnd(
+				$this->stringContains( '<noscript>' ),
+				$this->stringContains( 'googletagmanager.com/ns.html?id=GTM-TEST1234' )
+			)
+		);
+		$out->expects( $this->never() )->method( 'addScript' );
+
+		$hooks->addUnguardedGtm( 'GTM-TEST1234', "gtm.js?id=GTM-TEST1234\n", $out );
 	}
 }

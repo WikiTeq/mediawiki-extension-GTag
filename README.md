@@ -40,7 +40,7 @@ idea of who is actually using your site. For example:
 $wgGroupPermissions['sysop']['gtag-exempt'] = true;
 ```
 
-When [CookieConsent][6] is loaded, GTag emits Google scripts as `type="text/plain"` with `data-mw-cookieconsent="statistics"`. CookieConsent enables them after statistics consent. Example:
+When [CookieConsent][6] is loaded, GTag emits Google scripts as `type="text/plain"` with `data-mw-cookieconsent="statistics"`. CookieConsent enables them after statistics consent. CookieConsent needs JavaScript, so GTM does not output the noscript iframe in this mode. Example:
 ```php
 wfLoadExtension( 'CookieConsent' );
 wfLoadExtension( 'GTag' );

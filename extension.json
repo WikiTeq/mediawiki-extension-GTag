@@ -40,7 +40,8 @@
 		"main": {
 			"class": "MediaWiki\\Extension\\GTag\\Hooks",
 			"services": [
-				"PermissionManager"
+				"PermissionManager",
+				"ExtensionRegistry"
 			]
 		}
 	},
