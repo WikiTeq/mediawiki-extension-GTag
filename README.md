@@ -47,6 +47,8 @@ wfLoadExtension( 'GTag' );
 $wgGTagAnalyticsId = 'G-XXXXXXXX';
 ```
 
+**Warning:** Do not enable `$wgCookieConsentEnableGeolocation`. Anonymous HTML is one cache object, so the first visitor's country is reused for everyone. With GTag, if that HTML has no CookieConsent JavaScript, Google stays `text/plain` and never starts.
+
 ## Support
 
 - For general community support questions, please make use of the [talk page on mediawiki.org][2].
